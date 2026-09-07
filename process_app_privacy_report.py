@@ -17,14 +17,6 @@ def setup_dirs():
     os.makedirs(TEMP_DIR, exist_ok=True)
 
 
-def is_cidr(s):
-    try:
-        ipaddress.ip_network(s, strict=False)
-        return True
-    except ValueError:
-        return False
-
-
 def compile_srs(json_path, srs_path, label):
     cmd = ["sing-box", "rule-set", "compile", json_path, "-o", srs_path]
     try:
@@ -41,7 +33,7 @@ def compile_srs(json_path, srs_path, label):
 
 def compile_and_save_rule(rule_name, rules_list):
     """
-    需求5：将拆分后的 rules 列表构建为 version 2 的 sing-box JSON 结构落盘并编译。
+    需求5：将 rules 列表构建为 version 2 的 sing-box JSON 结构落盘并编译。
     """
     json_data = {
         "version": 2,
@@ -62,12 +54,16 @@ def compile_and_save_rule(rule_name, rules_list):
 
 def process_json_file(file_path):
     base_name = os.path.basename(file_path)
-    # 跳过已被拆分生成的 -ip.json 文件，防止重复循环处理
-    if base_name.endswith("-ip.json"):
-        return False
-
     rule_name = re.sub(r"\.json$", "", base_name, flags=re.IGNORECASE)
-    print(f"\n[Processing App Privacy File] {rule_name}.json")
+
+    # 1. 情况一：如果是独立存在的 -ip.json，仅直通编译生成 -ip.srs
+    if base_name.endswith("-ip.json"):
+        print(f"\n[Compiling Standalone IP Rule] {base_name}")
+        srs_path = os.path.join(TARGET_DIR, f"{rule_name}.srs")
+        return compile_srs(file_path, srs_path, rule_name)
+
+    # 2. 情况二：源主文件，执行拆分逻辑
+    print(f"\n[Processing App Privacy File] {base_name}")
 
     try:
         with open(file_path, "r", encoding="utf-8-sig") as f:
@@ -100,7 +96,6 @@ def process_json_file(file_path):
         if "ip_cidr" in r:
             ip_cidr_list.extend(r["ip_cidr"] if isinstance(r["ip_cidr"], list) else [r["ip_cidr"]])
 
-    # 组装域名规则
     domain_rule = {}
     if domain_list:
         domain_rule["domain"] = sorted(set(domain_list))
@@ -112,15 +107,14 @@ def process_json_file(file_path):
         domain_rule["domain_regex"] = sorted(set(domain_regex_list))
 
     ip_cidr_list = sorted(set(ip_cidr_list))
-
     processed_any = False
 
-    # 1. 域名规则输出（需求3：命名保持原名，需求5：强制 version 2）
+    # 输出/更新域名规则 (Name.json 与 Name.srs，需求5强制 version 2)
     if domain_rule:
         if compile_and_save_rule(rule_name, [domain_rule]):
             processed_any = True
 
-    # 2. IP 规则输出（需求3：命名追加 -ip 后缀，需求5：强制 version 2）
+    # 输出/更新 IP 规则 (Name-ip.json 与 Name-ip.srs，需求5强制 version 2)
     if ip_cidr_list:
         ip_rule_name = f"{rule_name}-ip"
         if compile_and_save_rule(ip_rule_name, [{"ip_cidr": ip_cidr_list}]):
@@ -141,6 +135,9 @@ def main():
         print(f"[Warning] No JSON files found in {TARGET_DIR}")
         return
 
+    # 优先排在前面的非 -ip 文件，确保先拆分再补充编译
+    json_files.sort(key=lambda x: 1 if x.endswith("-ip.json") else 0)
+
     success_count = 0
     fail_count = 0
 
@@ -151,7 +148,7 @@ def main():
         else:
             fail_count += 1
 
-    print(f"\n[App Privacy Report] Finished processing. Processed: {success_count}, Skipped/Failed: {fail_count}")
+    print(f"\n[App Privacy Report] Finished processing. Success: {success_count}, Failed/Skipped: {fail_count}")
 
     if os.path.exists(TEMP_DIR):
         shutil.rmtree(TEMP_DIR)
