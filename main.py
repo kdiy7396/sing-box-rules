@@ -50,10 +50,23 @@ def is_cidr(s):
         return False
 
 
+def clean_domain_list(domain_iterable):
+    """
+    清洗规则中的垃圾/水印域名：
+    过滤掉包含 skk.moe、ru1353t 等混淆/水印字符串的条目
+    """
+    cleaned = []
+    for d in domain_iterable:
+        d_str = str(d).strip()
+        # 过滤包含 skk.moe / 5ukk4w 等常见水印特征的字符串
+        if "skk.moe" in d_str.lower() or "5ukk4w" in d_str.lower():
+            continue
+        if d_str:
+            cleaned.append(d_str)
+    return sorted(set(cleaned))
+
+
 def try_parse_as_singbox_json(content):
-    """
-    判定源内容是否为 sing-box 规则集 JSON。
-    """
     stripped = content.lstrip("\ufeff").strip()
     if not stripped.startswith("{"):
         return None
@@ -68,12 +81,12 @@ def try_parse_as_singbox_json(content):
 
 def determine_domain_version(domain_rule):
     """
-    需求4：非仅含有"domain"参数的域名文件使用"version": 2，
-    仅含有"domain"参数域名文件使用"version": 1
+    规则版本划分：
+    - 仅含有 "domain" 参数使用 "version": 1
+    - 含有 domain_suffix / domain_keyword / domain_regex 等其他参数使用 "version": 2
     """
     if not domain_rule:
         return 1
-    
     keys = set(domain_rule.keys())
     if keys == {"domain"}:
         return 1
@@ -81,9 +94,6 @@ def determine_domain_version(domain_rule):
 
 
 def split_singbox_json(data):
-    """
-    需求3：对于源 json 格式且符合 sing-box 规则的文件，提取其内部的域名与 IP 进行拆分。
-    """
     domain_list, domain_suffix_list = [], []
     domain_keyword_list, domain_regex_list = [], []
     ip_cidr_list = []
@@ -92,17 +102,6 @@ def split_singbox_json(data):
     for r in rules:
         if not isinstance(r, dict):
             continue
-
-    KNOWN_KEYS = {"domain", "domain_suffix", "domain_keyword", "domain_regex", "ip_cidr"}
-    rules = data.get("rules", [])
-    for r in rules:
-        if not isinstance(r, dict):
-            continue
-
-        unknown_keys = set(r.keys()) - KNOWN_KEYS
-        if unknown_keys:
-            print(f"  [Warning] 源 JSON 中存在未处理的字段，可能导致规则丢失: {unknown_keys}")
-
         if "domain" in r:
             domain_list.extend(r["domain"] if isinstance(r["domain"], list) else [r["domain"]])
         if "domain_suffix" in r:
@@ -114,32 +113,38 @@ def split_singbox_json(data):
         if "ip_cidr" in r:
             ip_cidr_list.extend(r["ip_cidr"] if isinstance(r["ip_cidr"], list) else [r["ip_cidr"]])
 
-    domain_rule = {}
-    if domain_list:
-        domain_rule["domain"] = sorted(set(domain_list))
-    if domain_suffix_list:
-        domain_rule["domain_suffix"] = sorted(set(domain_suffix_list))
-    if domain_keyword_list:
-        domain_rule["domain_keyword"] = sorted(set(domain_keyword_list))
-    if domain_regex_list:
-        domain_rule["domain_regex"] = sorted(set(domain_regex_list))
+    # 进行清洗与去重
+    c_domain = clean_domain_list(domain_list)
+    c_domain_suffix = clean_domain_list(domain_suffix_list)
+    c_domain_keyword = clean_domain_list(domain_keyword_list)
+    c_domain_regex = clean_domain_list(domain_regex_list)
+    c_ip_cidr = sorted(set(ip_cidr_list))
 
+    # 构建域名规则字典：如果过滤后列表为空，不添加该 key
+    domain_rule = {}
+    if c_domain:
+        domain_rule["domain"] = c_domain
+    if c_domain_suffix:
+        domain_rule["domain_suffix"] = c_domain_suffix
+    if c_domain_keyword:
+        domain_rule["domain_keyword"] = c_domain_keyword
+    if c_domain_regex:
+        domain_rule["domain_regex"] = c_domain_regex
+
+    # 只有当 domain_rule 不为空时才生成对应的 json 对象，否则保持为 None
     domain_json_data = None
     if domain_rule:
         v = determine_domain_version(domain_rule)
         domain_json_data = {"version": v, "rules": [domain_rule]}
 
     ip_json_data = None
-    if ip_cidr_list:
-        ip_json_data = {"version": 1, "rules": [{"ip_cidr": sorted(set(ip_cidr_list))}]}
+    if c_ip_cidr:
+        ip_json_data = {"version": 1, "rules": [{"ip_cidr": c_ip_cidr}]}
 
     return domain_json_data, ip_json_data
 
 
 def parse_to_singbox_json_split(content):
-    """
-    处理 Clash/Surge/规则列表等纯文本文件，拆分为 domain 类和 ip_cidr 类。
-    """
     content_str = content.strip()
     domain_list, domain_suffix_list = [], []
     domain_keyword_list, domain_regex_list = [], []
@@ -185,15 +190,21 @@ def parse_to_singbox_json_split(content):
         else:
             domain_suffix_list.append(line)
 
+    c_domain = clean_domain_list(domain_list)
+    c_domain_suffix = clean_domain_list(domain_suffix_list)
+    c_domain_keyword = clean_domain_list(domain_keyword_list)
+    c_domain_regex = clean_domain_list(domain_regex_list)
+    c_ip_cidr = sorted(set(ip_cidr_list))
+
     domain_rule = {}
-    if domain_list:
-        domain_rule["domain"] = sorted(set(domain_list))
-    if domain_suffix_list:
-        domain_rule["domain_suffix"] = sorted(set(domain_suffix_list))
-    if domain_keyword_list:
-        domain_rule["domain_keyword"] = sorted(set(domain_keyword_list))
-    if domain_regex_list:
-        domain_rule["domain_regex"] = sorted(set(domain_regex_list))
+    if c_domain:
+        domain_rule["domain"] = c_domain
+    if c_domain_suffix:
+        domain_rule["domain_suffix"] = c_domain_suffix
+    if c_domain_keyword:
+        domain_rule["domain_keyword"] = c_domain_keyword
+    if c_domain_regex:
+        domain_rule["domain_regex"] = c_domain_regex
 
     domain_json_data = None
     if domain_rule:
@@ -201,9 +212,8 @@ def parse_to_singbox_json_split(content):
         domain_json_data = {"version": v, "rules": [domain_rule]}
 
     ip_json_data = None
-    ip_cidr_list = sorted(set(ip_cidr_list))
-    if ip_cidr_list:
-        ip_json_data = {"version": 1, "rules": [{"ip_cidr": ip_cidr_list}]}
+    if c_ip_cidr:
+        ip_json_data = {"version": 1, "rules": [{"ip_cidr": c_ip_cidr}]}
 
     return domain_json_data, ip_json_data
 
@@ -223,6 +233,9 @@ def compile_srs(json_path, srs_path, label):
 
 
 def compile_rule(rule_name, json_data):
+    if not json_data:
+        return False
+
     temp_json_path = os.path.join(TEMP_DIR, f"{rule_name}.json")
     final_json_path = os.path.join(RULE_DIR, f"{rule_name}.json")
     srs_path = os.path.join(RULE_DIR, f"{rule_name}.srs")
@@ -272,57 +285,26 @@ def process_links():
             print(f"[Skip] Failed to fetch content for {rule_name}")
             fail_count += 1
             continue
-            
+
         try:
             singbox_data = try_parse_as_singbox_json(content)
-            
             if singbox_data is not None:
-                # 尝试对 sing-box JSON 进行字段提取
                 domain_json, ip_json = split_singbox_json(singbox_data)
-                
-                has_domain = domain_json is not None
-                has_ip = ip_json is not None
-
-                # 分情况处理：
-                if has_domain and has_ip:
-                    # 1. 混合规则 -> 需求3：触发拆分，分别输出 Name 和 Name-ip
-                    pass  # 保持 domain_json 和 ip_json，进入下方的 compile_rule 流程
-
-                elif has_domain and not has_ip:
-                    # 2. 纯域名规则 -> 需求1：原样直通（保留原始 JSON 格式与缩进）
-                    if handle_direct_json(rule_name, content):
-                        success_count += 1
-                    else:
-                        fail_count += 1
-                    continue
-
-                elif not has_domain and has_ip:
-                    # 3. 纯 IP 规则 -> 原样直通并加上 -ip 后缀命名（按需保持统一）
-                    if handle_direct_json(f"{rule_name}-ip", content):
-                        success_count += 1
-                    else:
-                        fail_count += 1
-                    continue
-
             else:
-                # 需求2：非 sing-box JSON 文本（Clash/Surge 等），走常规解析与拆分
                 domain_json, ip_json = parse_to_singbox_json_split(content)
 
-            # --- 统一的编译输出入口（处理混合规则 & 非 JSON 源）---
             processed_any = False
 
-            # 输出与编译域名规则
             if domain_json and compile_rule(rule_name, domain_json):
                 processed_any = True
-            
-            # 输出与编译 IP 规则 (-ip 后缀)
+
             if ip_json and compile_rule(f"{rule_name}-ip", ip_json):
                 processed_any = True
 
             if processed_any:
                 success_count += 1
             else:
-                print(f"  [Warning] No valid rules found in {rule_name}")
+                print(f"  [Warning] No valid rules after filtering in {rule_name}")
                 fail_count += 1
 
         except Exception as e:
