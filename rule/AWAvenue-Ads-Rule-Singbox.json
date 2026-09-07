@@ -1,8 +1,7 @@
 {
-  "version": 3,
+  "version": 2,
   "rules": [
     {
-      "ip_cidr": [],
       "domain": [
         "1500020991.vodplayer.wxamedia.com",
         "1500022744.vodplayer.wxamedia.com",
@@ -892,13 +891,6 @@
         "zjres-ad.kajicam.com",
         "zxid-m.mobileservice.cn"
       ],
-      "domain_keyword": [
-        "-ad.sm.cn",
-        "-ad.video.yximgs.com",
-        "-ad.wtzw.com",
-        "-be-pack-sign.pglstatp-toutiao.com",
-        "-normal.zijieapi.com"
-      ],
       "domain_suffix": [
         "1rtb.com",
         "a.market.xiaomi.com",
@@ -911,7 +903,13 @@
         "yfanads.com",
         "zhangyuyidong.cn"
       ],
-      "domain_regex": []
+      "domain_keyword": [
+        "-ad.sm.cn",
+        "-ad.video.yximgs.com",
+        "-ad.wtzw.com",
+        "-be-pack-sign.pglstatp-toutiao.com",
+        "-normal.zijieapi.com"
+      ]
     }
   ]
 }
